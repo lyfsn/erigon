@@ -323,6 +323,8 @@ func (f *Fetch) handleInboundMessage(ctx context.Context, req *sentry.InboundMes
 			return err
 		}
 	case sentry.MessageId_POOLED_TRANSACTIONS_66, sentry.MessageId_TRANSACTIONS_66:
+		//fmt.Println("---debug---008--1---")
+
 		txs := types2.TxSlots{}
 		if err := f.threadSafeParsePooledTxn(func(parseContext *types2.TxParseContext) error {
 			return nil
@@ -332,6 +334,7 @@ func (f *Fetch) handleInboundMessage(ctx context.Context, req *sentry.InboundMes
 
 		switch req.Id {
 		case sentry.MessageId_TRANSACTIONS_66:
+			//fmt.Println("---debug---008--2---")
 			if err := f.threadSafeParsePooledTxn(func(parseContext *types2.TxParseContext) error {
 				if _, err := types2.ParseTransactions(req.Data, 0, parseContext, &txs, func(hash []byte) error {
 					known, err := f.pool.IdHashKnown(tx, hash)
@@ -350,6 +353,7 @@ func (f *Fetch) handleInboundMessage(ctx context.Context, req *sentry.InboundMes
 				return err
 			}
 		case sentry.MessageId_POOLED_TRANSACTIONS_66:
+			//fmt.Println("---debug---008--3---")
 			if err := f.threadSafeParsePooledTxn(func(parseContext *types2.TxParseContext) error {
 				if _, _, err := types2.ParsePooledTransactions66(req.Data, 0, parseContext, &txs, func(hash []byte) error {
 					known, err := f.pool.IdHashKnown(tx, hash)
@@ -373,6 +377,7 @@ func (f *Fetch) handleInboundMessage(ctx context.Context, req *sentry.InboundMes
 		if len(txs.Txs) == 0 {
 			return nil
 		}
+		//fmt.Println("---debug---008--4---")
 		f.pool.AddRemoteTxs(ctx, txs)
 	default:
 		defer f.logger.Trace("[txpool] dropped p2p message", "id", req.Id)

@@ -528,6 +528,7 @@ func (p *TxPool) processRemoteTxs(ctx context.Context) error {
 	if l == 0 {
 		return nil
 	}
+	//fmt.Println("---debug---0031---", l)
 
 	err = p.senders.registerNewSenders(p.unprocessedRemoteTxs, p.logger)
 	if err != nil {
@@ -538,12 +539,19 @@ func (p *TxPool) processRemoteTxs(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	//fmt.Println("---debug---008--7---", len(newTxs.Txs))
 
 	announcements, _, err := p.addTxs(p.lastSeenBlock.Load(), cacheView, p.senders, newTxs,
 		p.pendingBaseFee.Load(), p.pendingBlobFee.Load(), p.blockGasLimit.Load(), true, p.logger)
 	if err != nil {
 		return err
 	}
+
+	//fmt.Println("---debug---008--8---", announcements.Len(), len(d))
+	//for _, v := range d {
+	//	fmt.Println("---debug---008--9---", v.String())
+	//}
+
 	p.promoted.Reset()
 	p.promoted.AppendOther(announcements)
 
@@ -806,10 +814,12 @@ func (p *TxPool) AddRemoteTxs(_ context.Context, newTxs types.TxSlots) {
 		// consume remote tx from fetch
 		return
 	}
+	//fmt.Println("---debug---0061---", len(newTxs.Txs))
 
 	defer addRemoteTxsTimer.ObserveDuration(time.Now())
 	p.lock.Lock()
 	defer p.lock.Unlock()
+	//fmt.Println("---debug---008--5---")
 	for i, txn := range newTxs.Txs {
 		hashS := string(txn.IDHash[:])
 		_, ok := p.unprocessedRemoteByHash[hashS]
@@ -817,6 +827,7 @@ func (p *TxPool) AddRemoteTxs(_ context.Context, newTxs types.TxSlots) {
 			continue
 		}
 		p.unprocessedRemoteByHash[hashS] = len(p.unprocessedRemoteTxs.Txs)
+		//fmt.Println("---debug---008--6---", len(p.unprocessedRemoteTxs.Txs))
 		p.unprocessedRemoteTxs.Append(txn, newTxs.Senders.At(i), false)
 	}
 }
@@ -889,6 +900,7 @@ func (p *TxPool) validateTx(txn *types.TxSlot, isLocal bool, stateCache kvcache.
 		if txn.Traced {
 			p.logger.Info(fmt.Sprintf("TX TRACING: validateTx intrinsic gas calculated failed idHash=%x reason=%s", txn.IDHash, reason))
 		}
+		fmt.Println("---debug----12---3--")
 		return reason
 	}
 	if gas > txn.Gas {
@@ -897,16 +909,20 @@ func (p *TxPool) validateTx(txn *types.TxSlot, isLocal bool, stateCache kvcache.
 		}
 		return txpoolcfg.IntrinsicGas
 	}
+	fmt.Println("---debug----12---4--", !isLocal, uint64(p.all.count(txn.SenderID)), p.cfg.AccountSlots)
 	if !isLocal && uint64(p.all.count(txn.SenderID)) > p.cfg.AccountSlots {
 		if txn.Traced {
 			p.logger.Info(fmt.Sprintf("TX TRACING: validateTx marked as spamming idHash=%x slots=%d, limit=%d", txn.IDHash, p.all.count(txn.SenderID), p.cfg.AccountSlots))
 		}
+		fmt.Println("---debug----12---5--")
 		return txpoolcfg.Spammer
 	}
+	fmt.Println("---debug----12---1--", !isLocal, (p.all.blobCount(txn.SenderID) + uint64(len(txn.BlobHashes))), p.cfg.BlobSlots)
 	if !isLocal && (p.all.blobCount(txn.SenderID)+uint64(len(txn.BlobHashes))) > p.cfg.BlobSlots {
 		if txn.Traced {
 			p.logger.Info(fmt.Sprintf("TX TRACING: validateTx marked as spamming (too many blobs) idHash=%x slots=%d, limit=%d", txn.IDHash, p.all.count(txn.SenderID), p.cfg.AccountSlots))
 		}
+		fmt.Println("---debug----12---2--")
 		return txpoolcfg.Spammer
 	}
 	if p.totalBlobsInPool.Load() >= p.cfg.TotalBlobPoolLimit {
@@ -1141,6 +1157,7 @@ func (p *TxPool) punishSpammer(spammer uint64) {
 			case BaseFeeSubPool:
 				p.baseFee.Remove(mt, "punishSpammer", p.logger)
 			case QueuedSubPool:
+				fmt.Println("---debug---008--11--2-", p.queued.Len(), p.pending.Len(), p.baseFee.Len())
 				p.queued.Remove(mt, "punishSpammer", p.logger)
 			default:
 				//already removed
@@ -1251,21 +1268,25 @@ func (p *TxPool) addTxs(blockNum uint64, cacheView kvcache.CacheView, senders *s
 	sendersWithChangedState := map[uint64]struct{}{}
 	discardReasons := make([]txpoolcfg.DiscardReason, len(newTxs.Txs))
 	announcements := types.Announcements{}
+	fmt.Println("---debug---008--7--1-")
 	for i, txn := range newTxs.Txs {
 		if found, ok := p.byHash[string(txn.IDHash[:])]; ok {
 			discardReasons[i] = txpoolcfg.DuplicateHash
 			// In case if the transition is stuck, "poke" it to rebroadcast
 			if collect && newTxs.IsLocal[i] && (found.currentSubPool == PendingSubPool || found.currentSubPool == BaseFeeSubPool) {
 				announcements.Append(found.Tx.Type, found.Tx.Size, found.Tx.IDHash[:])
+				//fmt.Println("---debug---008--7--2-")
 			}
 			continue
 		}
 		mt := newMetaTx(txn, newTxs.IsLocal[i], blockNum)
 		if reason := p.addLocked(mt, &announcements); reason != txpoolcfg.NotSet {
 			discardReasons[i] = reason
+			//fmt.Println("---debug---008--7--3-")
 			continue
 		}
-		discardReasons[i] = txpoolcfg.NotSet // unnecessary
+		//discardReasons[i] = txpoolcfg.NotSet // unnecessary
+		//fmt.Println("---debug---008--7--4-")
 		if txn.Traced {
 			logger.Info(fmt.Sprintf("TX TRACING: schedule sendersWithChangedState idHash=%x senderId=%d", txn.IDHash, mt.Tx.SenderID))
 		}
@@ -1279,8 +1300,9 @@ func (p *TxPool) addTxs(blockNum uint64, cacheView kvcache.CacheView, senders *s
 		}
 		p.onSenderStateChange(senderID, nonce, balance, blockGasLimit, logger)
 	}
-
+	fmt.Println("---debug---008--10--1-", p.queued.Len(), p.pending.Len(), p.baseFee.Len())
 	p.promote(pendingBaseFee, pendingBlobFee, &announcements, logger)
+	fmt.Println("---debug---008--10--2-", p.queued.Len(), p.pending.Len(), p.baseFee.Len())
 	p.pending.EnforceBestInvariants()
 
 	return announcements, discardReasons, nil
@@ -1364,8 +1386,12 @@ func (p *TxPool) setBlobFee(blobFee uint64) {
 
 func (p *TxPool) addLocked(mt *metaTx, announcements *types.Announcements) txpoolcfg.DiscardReason {
 	// Insert to pending pool, if pool doesn't have txn with same Nonce and bigger Tip
+	//fmt.Println("---debug---008--8--1-")
 	found := p.all.get(mt.Tx.SenderID, mt.Tx.Nonce)
+	fmt.Println("---debug---008--8--2-", found == nil)
 	if found != nil {
+		//fmt.Println("---debug---008--8--2-")
+
 		if found.Tx.Type == types.BlobTxType && mt.Tx.Type != types.BlobTxType {
 			return txpoolcfg.BlobTxReplace
 		}
@@ -1416,10 +1442,9 @@ func (p *TxPool) addLocked(mt *metaTx, announcements *types.Announcements) txpoo
 		default:
 			//already removed
 		}
-
 		p.discardLocked(found, txpoolcfg.ReplacedByHigherTip)
 	}
-
+	//fmt.Println("---debug---008--8--3-")
 	// Don't add blob tx to queued if it's less than current pending blob base fee
 	if mt.Tx.Type == types.BlobTxType && mt.Tx.BlobFeeCap.LtUint64(p.pendingBlobFee.Load()) {
 		return txpoolcfg.FeeTooLow
@@ -1437,8 +1462,10 @@ func (p *TxPool) addLocked(mt *metaTx, announcements *types.Announcements) txpoo
 	if mt.subPool&IsLocal != 0 {
 		p.isLocalLRU.Add(hashStr, struct{}{})
 	}
+	//fmt.Println("---debug---008--8--41-", p.queued.Len())
 	// All transactions are first added to the queued pool and then immediately promoted from there if required
 	p.queued.Add(mt, "addLocked", p.logger)
+	//fmt.Println("---debug---008--8--42-", p.queued.Len())
 	if mt.Tx.Type == types.BlobTxType {
 		t := p.totalBlobsInPool.Load()
 		p.totalBlobsInPool.Store(t + (uint64(len(mt.Tx.BlobHashes))))
@@ -1446,6 +1473,7 @@ func (p *TxPool) addLocked(mt *metaTx, announcements *types.Announcements) txpoo
 
 	// Remove from mined cache as we are now "resurrecting" it to a sub-pool
 	p.deleteMinedBlobTxn(hashStr)
+	//fmt.Println("---debug---008--8--5-", p.queued.Len(), p.pending.Len(), p.baseFee.Len())
 	return txpoolcfg.NotSet
 }
 
@@ -1615,6 +1643,7 @@ func (p *TxPool) onSenderStateChange(senderID uint64, senderNonce uint64, sender
 			case BaseFeeSubPool:
 				p.baseFee.Remove(mt, deleteAndContinueReasonLog, p.logger)
 			case QueuedSubPool:
+				fmt.Println("---debug---008--11--1-", p.queued.Len(), p.pending.Len(), p.baseFee.Len())
 				p.queued.Remove(mt, deleteAndContinueReasonLog, p.logger)
 			default:
 				//already removed
@@ -1698,8 +1727,12 @@ func (p *TxPool) onSenderStateChange(senderID uint64, senderNonce uint64, sender
 // promote reasserts invariants of the subpool and returns the list of transactions that ended up
 // being promoted to the pending or basefee pool, for re-broadcasting
 func (p *TxPool) promote(pendingBaseFee uint64, pendingBlobFee uint64, announcements *types.Announcements, logger log.Logger) {
+	fmt.Println("---debug---008--9--1-")
+
 	// Demote worst transactions that do not qualify for pending sub pool anymore, to other sub pools, or discard
 	for worst := p.pending.Worst(); p.pending.Len() > 0 && (worst.subPool < BaseFeePoolBits || worst.minFeeCap.LtUint64(pendingBaseFee) || (worst.Tx.Type == types.BlobTxType && worst.Tx.BlobFeeCap.LtUint64(pendingBlobFee))); worst = p.pending.Worst() {
+		fmt.Println("---debug---008--9--2-")
+
 		if worst.subPool >= BaseFeePoolBits {
 			tx := p.pending.PopWorst()
 			announcements.Append(tx.Tx.Type, tx.Tx.Size, tx.Tx.IDHash[:])
@@ -1711,6 +1744,8 @@ func (p *TxPool) promote(pendingBaseFee uint64, pendingBlobFee uint64, announcem
 
 	// Promote best transactions from base fee pool to pending pool while they qualify
 	for best := p.baseFee.Best(); p.baseFee.Len() > 0 && best.subPool >= BaseFeePoolBits && best.minFeeCap.CmpUint64(pendingBaseFee) >= 0 && (best.Tx.Type != types.BlobTxType || best.Tx.BlobFeeCap.CmpUint64(pendingBlobFee) >= 0); best = p.baseFee.Best() {
+		fmt.Println("---debug---008--9--3-")
+
 		tx := p.baseFee.PopBest()
 		announcements.Append(tx.Tx.Type, tx.Tx.Size, tx.Tx.IDHash[:])
 		p.pending.Add(tx, logger)
@@ -1718,11 +1753,20 @@ func (p *TxPool) promote(pendingBaseFee uint64, pendingBlobFee uint64, announcem
 
 	// Demote worst transactions that do not qualify for base fee pool anymore, to queued sub pool, or discard
 	for worst := p.baseFee.Worst(); p.baseFee.Len() > 0 && worst.subPool < BaseFeePoolBits; worst = p.baseFee.Worst() {
+		fmt.Println("---debug---008--9--4-")
+
 		p.queued.Add(p.baseFee.PopWorst(), "demote-base", logger)
 	}
 
+	if p.queued.Best() != nil {
+		fmt.Println("---debug---008--9--1.2---", p.queued.Best().subPool >= BaseFeePoolBits)
+		fmt.Printf("---debug---008--9--1.3--- 0b%08b\n", p.queued.Best().subPool)
+	}
 	// Promote best transactions from the queued pool to either pending or base fee pool, while they qualify
 	for best := p.queued.Best(); p.queued.Len() > 0 && best.subPool >= BaseFeePoolBits; best = p.queued.Best() {
+		//if best.subPool >= BaseFeePoolBits {
+		fmt.Println("---debug---008--9--5-")
+
 		if best.minFeeCap.Cmp(uint256.NewInt(pendingBaseFee)) >= 0 {
 			tx := p.queued.PopBest()
 			announcements.Append(tx.Tx.Type, tx.Tx.Size, tx.Tx.IDHash[:])
@@ -1730,7 +1774,12 @@ func (p *TxPool) promote(pendingBaseFee uint64, pendingBlobFee uint64, announcem
 		} else {
 			p.baseFee.Add(p.queued.PopBest(), "promote-queued", logger)
 		}
+		//}
+		//if best.subPool >= EnoughBalance + NotTooMuchGas {
+		//	p.queued.Add()
+		//}
 	}
+	fmt.Println("---debug---008--9--6-")
 
 	// Discard worst transactions from the queued sub pool if they do not qualify
 	// <FUNCTIONALITY REMOVED>
@@ -1744,9 +1793,10 @@ func (p *TxPool) promote(pendingBaseFee uint64, pendingBlobFee uint64, announcem
 	for p.baseFee.Len() > p.baseFee.limit {
 		p.discardLocked(p.baseFee.PopWorst(), txpoolcfg.BaseFeePoolOverflow)
 	}
-
+	fmt.Println("---debug---008--9--7-")
 	// Discard worst transactions from the queued sub pool until it is within its capacity limits
 	for _ = p.queued.Worst(); p.queued.Len() > p.queued.limit; _ = p.queued.Worst() {
+		fmt.Println("---debug---008--9--8-")
 		p.discardLocked(p.queued.PopWorst(), txpoolcfg.QueuedPoolOverflow)
 	}
 }
@@ -1784,11 +1834,14 @@ func MainLoop(ctx context.Context, db kv.RwDB, p *TxPool, newTxs chan types.Anno
 	for {
 		select {
 		case <-ctx.Done():
+			fmt.Println("----debug---004-1---")
 			_, _ = p.flush(ctx, db)
 			return
 		case <-logEvery.C:
+			fmt.Println("----debug---004-2---")
 			p.logStats()
 		case <-processRemoteTxsEvery.C:
+			//fmt.Println("----debug---004-3---")
 			if !p.Started() {
 				continue
 			}
@@ -1802,6 +1855,7 @@ func MainLoop(ctx context.Context, db kv.RwDB, p *TxPool, newTxs chan types.Anno
 				p.logger.Error("[txpool] process batch remote txs", "err", err)
 			}
 		case <-commitEvery.C:
+			//fmt.Println("----debug---004-4---")
 			if db != nil && p.Started() {
 				t := time.Now()
 				written, err := p.flush(ctx, db)
@@ -1813,6 +1867,7 @@ func MainLoop(ctx context.Context, db kv.RwDB, p *TxPool, newTxs chan types.Anno
 				p.logger.Debug("[txpool] Commit", "written_kb", written/1024, "in", time.Since(t))
 			}
 		case announcements := <-newTxs:
+			//fmt.Println("----debug---004-5---")
 			go func() {
 				for i := 0; i < 16; i++ { // drain more events from channel, then merge and dedup them
 					select {
@@ -1917,6 +1972,7 @@ func MainLoop(ctx context.Context, db kv.RwDB, p *TxPool, newTxs chan types.Anno
 				send.AnnouncePooledTxs(remoteTxTypes, remoteTxSizes, remoteTxHashes, remoteTxsBroadcastMaxPeers*2)
 			}()
 		case <-syncToNewPeersEvery.C: // new peer
+			//fmt.Println("----debug---004-6---")
 			newPeers := p.recentlyConnectedPeers.GetAndClean()
 			if len(newPeers) == 0 {
 				continue
